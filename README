@@ -1,0 +1,30 @@
+		----------------------------
+		The LLg package set - V 1.07
+	        ----------------------------
+		       For PERL5.001m
+	               --------------
+
+
+LLg is a set of PERL packages for automating the process of developping
+recursive descent parsers.
+
+This set includes packages for implementing lexical and syntactical
+analysers. With LLg it's very easy to develop parsers for small
+languages. LLg is documented, and provided with some examples.
+
+LLg comprises two major packages :
+1. Lex.pm - Generator of lexical analyzers 
+2. LLg.pm - Generator of parsers for CF grammars
+
+It's an alpha version so use LLg and Lex just for explorations and
+experimentations.
+
+The LLg parser generator is available in:
+
+	ftp://www.eurolang.fr/pub/perl
+
+Philippe
+email: philippe.verdret@eurolang.fr
+
+
+

@@ -1,0 +1,227 @@
+=head1 NAME
+
+C<Lex> - Générateur d'analyseurs lexicaux
+(Alpha 1.07).
+
+=head1 SYNOPSIS
+
+	@tokens = (
+		   'ADDOP' => '[-+]', 
+		   'LEFTP' => '[(]',
+		   'RIGHTP' => '[)]',
+		   'INTEGER' => '[1-9][0-9]*',
+		   'NEWLINE' => '\n',
+		   'STRING' => '["]', sub {
+		     my $self = shift;
+		     my $string = $';
+		     my $buffer = $string;
+		     while($string !~ /"/) {
+	                   $string = $self->readline;
+			   $buffer .= $string;
+	             }
+	             $buffer =~ s/^[^"]*"//;
+		     $self->set($buffer);
+		     qq!"$&!;		# token content
+		   },
+		   'ERROR' => '.+',
+		  );
+
+	$lexer = Lex->new(@tokens);
+	$lexer->from(\*DATA);
+	print "Tokenization of DATA:\n";
+
+	TOKEN:while (1) {
+	  $token = $lexer->nextToken;
+	  if (not $lexer->eof) {
+	    print "Line $.\t";
+	    print "Type: ", $token->name, "\t";
+	    print "Content:->", $token->get, "<-\n";
+	  } else {
+	    last TOKEN;
+	  }
+	}
+
+	__END__
+	1+2-5
+	"multiline
+	string"
+
+
+=head1 PACKAGE LEX
+
+Le package C<Lex> permet de créer des analyseurs lexicaux. Ce
+package a été écrit pour être utilisé avec le package C<LLg> qui
+permet de définir des analyseurs syntaxiques pour des grammaires LL.
+
+L'analyseur lexical est chargé de la reconnaissance des lexèmes. Ces
+lexèmes sont définis par les expressions régulières données en paramètre à
+la méthode new(). L'ordre dans lequel l'analyseur lexical génèré
+examine les expressions régulières est déterminé par celui
+dans lequel ces expressions sont passées en paramètre.
+
+L'analyseur lexical retourne des objets définis dans le package Token
+fournis avec C<Lex>.
+
+=head2 Méthodes
+
+=item chomp()
+
+Active/désactive le retrait du caractère nouvelle-ligne des lignes
+lues.
+
+=item debug()
+
+Active/désactive une trace.
+
+=item eof()
+
+Retourne vraie si la fin de fichier est rencontrée.
+
+=item from()
+
+from() permet d'indiquer quelle est la source des données à
+analyser.  L'argument de cette méthode est une référence à un
+filehandle ou une liste de chaînes de caractères . Par exemple :
+
+	$symbol->from(\*DATA);
+
+ou
+
+	$symbol->from('les données à analyser');
+
+=item less(EXPR)
+
+Cette méthode accepte en argument un expression dont la valeur est
+placée au début du flot de données.
+
+=item new()
+
+Crée un nouvel analyseur lexical. L'argument de la méthode est une
+liste de triplets comportant : le nom symbolique du lexème,
+l'expression régulière nécessaire à sa reconnaissance et
+éventuellement une fonction anonyme exécutée au moment ou le lexème
+est reconnu.  Pour chaque triplet new() crée un objet de type
+C<Token>. L'analyseur lexical construit par la méthode new() cherche
+tour à tour à apparier chaque expressions régulières avec le début du
+flot de données à analyser. L'ordre examen des expressions régulières
+est fixé par l'ordre dans lequel elles sont données en paramètre.
+
+=item reset()
+
+Vide le buffer interne à l'objet C<Lex> et efface tout token déjà
+reconnu. 
+
+=item buffer()
+
+=item buffer(EXPR)
+
+Retourne le contenu du buffer interne au package Lex. Avec une
+expression en argument, place le résultat de l'expression dans le buffer.
+
+=item singleline()
+
+Active/désactive la lecture de nouvelles données. 
+
+=item skip(RE)
+
+RE est une expression régulière définissant le séparateur de lexème
+(par défaut C<[ \t]+>).
+
+=item readline()
+
+Effectue la lecture des données sur l'entrée définie pour le lecteur
+(voir la méthode from()). Retourne le résultat de la lecture.
+
+=item token()
+
+Retourne l'objet correspondant au dernier lexème consommé. En
+l'absence de token lu, retourne un token spécial dont le nom
+symbolique est C<default token>.
+
+=head1 PACKAGE TOKEN 
+
+Le package C<Token> permet de définir les lexèmes utilisés par C<Lex>.
+Les objets de ce type sont en principe créés par la méthode new() du
+package C<Lex>. 
+
+=head2 Méthodes
+
+=item debug()
+
+Active/désactive une trace indiquant quels sont les lexèmes trouvés.
+
+=item get()
+
+Retourne la chaîne de caractères reconnue par le lexème.
+
+=item mean()
+
+Retourne la fonction anonyme associée à l'objet C<Token>.
+
+=item name()
+
+Retourne le nom symbolique de l'objet.
+
+=item next()
+
+Active la recherche du lexème défini par l'expression régulière
+contenue dans l'objet. Si ce lexème est reconnu sur le flot de
+caractère à analyser alors next() retourne la chaîne trouvée et met le
+statut de l'objet à vrai.
+
+=item new()
+
+Crée un objet de type C<Token>. Les arguments de la méthode new() sont
+dans l'ordre : un nom symbolique, une expression régulière et
+éventuellement une fonction anonyme. La fonction anonyme est exécutée
+au moment ou le lexème est consommé par l'analyseur lexical. Le
+scalaire retournée par la fontion définit la chaîne de caractère
+mémorisée dans l'objet et retournée par la méthode get().
+
+=item regexp()
+
+Retourne l'expression régulière qui a permis la reconnaissance de
+l'objet Token.
+
+=item status()
+
+Indique si la dernière recherche du lexème a réussie ou échouée.
+
+=head1 GESTION DES ERREURS
+
+Pour traiter les cas de non reconnaissance de lexèmes vous pouvez
+définir un objet C<Token> spécifique, par exemple :
+
+	$ERROR = Token->new('.+');
+
+Si la recherche de ce token réussie il est alors possible d'appeler
+une fonction dévolue au traitement des erreurs. 
+
+=head1 EXEMPLES
+
+tokenizer.pl - Illustre la lexématisation d'un flot de données au moyen du
+package Lex.
+
+=head1 AUTEURS
+
+Philippe Verdret.
+
+=head1 EXTENSIONS
+
+Des extensions et optimisations sont possibles.
+
+=head1 BUGS
+
+=head1 REFERENCES
+
+Groc, B., & Bouhier, M. - Programmation par la syntaxe. Dunod 1990.
+
+Mason, T & Brown, D. - Lex & Yacc. O'Reilly & Associates, Inc. 1990.
+
+=head1 COPYRIGHT
+
+Copyright (c) 1995-1996 Philippe Verdret. All rights reserved.
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+
+=cut

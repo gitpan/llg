@@ -1,0 +1,418 @@
+=head1 NAME
+
+C<LLg> - Générateur de parseurs récursifs descendants
+(Alpha 1.07).
+
+=head1 SYNOPSIS
+
+	use LLg;
+	use Lex;
+        @tokens = (
+	   'addop' => '[-+]', 
+	   'leftp' => '[(]',
+	   'rightp' => '[)]',
+	   'integer' => '[1-9][0-9]*',
+	  );
+	$reader = Lex->new(@tokens);
+
+	$EXPR = And->new(\($FACTOR, Any->new(\$addop, \$FACTOR)),
+		sub { 
+	          shift(@_);
+		  my $result = shift(@_);
+		  my ($op, $integer);
+		  while ($#_ >= 0) {
+                    ($op, $integer) = (shift(@_), shift(@_));
+		    if ($op eq '+')  {
+		      $result += $integer;
+		    } else {
+		      $result -= $integer;
+		    }
+		  }
+		  $result;
+		});
+	$FACTOR = Or->new(\$integer, \$PAREXP);
+	$PAREXP  = And->new(\$leftp, \$EXPR, \$rightp),
+	    sub { $_[2] });
+
+	print "result: ", $EXPR->next, "\n";
+
+=head1 DESCRIPTION
+
+La génération manuelle de parseurs pour des langages mêmes simples est
+fastidieuse. Pour automatiser ce travail des générateurs de parseurs
+existent. yacc en est un exemple bien connu.  Mais sa mise en oeuvre
+est plutôt lourde et nécessite une formation solide dans le domaine de
+l'analyse syntaxique.
+
+C<LLg> comporte un ensemble de packages PERL V qui permettent de générer
+des parseurs récursifs descendants pour des grammaires non
+contextuelles. LLg accepte des productions avec des préfixes
+communs. Le traitement de ces productions est assuré par un mécanisme
+de rebroussement (backtracking).
+
+C<LLg> est livrés avec les packages C<Lex> et C<Token>. Ces packages
+sont implantés dans un style objet. L'utilisation de ces packages
+suppose que vous sachiez écrire une grammaire BNF et que vous
+possédiez quelques rudiments de programmation objet en PERL.
+
+Pour la spécification du parseur aucune extension syntaxique à PERL
+n'est proposée. Cette spécification s'effectue entièrement en PERL,
+qu'il s'agisse de définir les lexèmes, les règles syntaxiques ou la
+sémantique. C<LLg> permet d'écrire facilement des I<schémas de
+traduction> (des analyseurs syntaxiques dans lesquels la sémantique
+des productions de la grammaire est donnée par des actions associées à
+chacune de ces productions).
+
+C<LLg> qui permet de définir les non-terminaux, doit être utilisé avec
+le package C<Lex> qui permet de définir des analyseurs lexicaux.
+C<Lex> gère la lecture et la consommation des lexèmes dans le flot de
+caractères à analyser. Les terminaux sont définis dans le package
+C<Token>. Mais la création de ces terminaux est gérée par le package
+C<Lex>.
+
+Avant d'utiliser ces packages, il est nécessaire de définir une
+grammaire BNF non-récursive à gauche (en fait LL(1)). Une fois la
+grammaire définie, l'écriture du parseur consiste :
+
+1. à créer un analyseur lexical en spécifiant la liste des
+terminaux,
+
+2. à créer un analyseur syntaxique en créant un objet de type C<LLg>
+(en fait de l'un des packages qui héritent du package C<LLg>) pour
+chaque non-terminal,
+
+3. à définir la sémantique en associant une fonction anonyme à chaque
+objet de type C<LLg>.
+
+Examinons l'exemple des expressions arithmétiques ne comportant
+que les opérateurs C<+> et C<->. Dans le Camel book nous trouvons la
+grammaire suivante :
+
+	EXPR ::= FACTOR { ADDOP FACTOR }
+	ADDOP ::= '+' | '-'
+	FACTOR ::= NUMBER | '(' EXPR ')'
+
+La création du parseur pour ce langage consiste à définir un analyseur
+lexical et un analyseur syntaxique.
+
+L'analyseur lexical se définit de la manière suivante :
+
+        @tokens = (
+	   'addop' => '[-+]', 
+	   'leftp' => '[(]',
+	   'rightp' => '[)]',
+	   'integer' => '[1-9][0-9]*',
+	  );
+	$reader = Lex->new(@tokens);
+
+L'argument de la méthode new() est une liste de doublets indiquant
+l'identité du terminal et l'expression régulière permettant sa
+reconnaissance. Chaque doublet entraîne la création d'un terminal de
+type C<Token>.
+
+Le package C<LLg> est le package père d'un ensemble : C<And>, C<Any>,
+C<Do>, C<Hook>, C<Opt>, C<Or>. Ces différents packages permettent de
+créer les différents types de règles habituellement utilisées dans
+l'écriture d'une grammaire indépendante du contexte. Pour la
+définition des règles nous avons adopté une notation préfixée et
+établi les équivalences suivantes :
+
+
+  A | B     Or->new(\$A, \$B)    symbole A ou symbole B
+
+  A B       And->new(\$A, \$B)   symbole A suivi de symbole B
+
+  { A }     Any->new(\$A)        nombre quelconque de symbole A
+
+  [ A ]     Opt->new(\$A)        zéro ou une occurrence du symbole A
+
+
+Tous les symboles sont des objets au sens PERL.  À la suite des objets
+apparaissent éventuellement une ou deux fonctions anonymes, la première est
+l'action sémantique exécutée après l'examen des symboles, la seconde
+une fonction exécutée avant l'examen des symboles.
+
+Pour la définition des règles de notre exemple on créera les objets
+suivants :
+
+	$EXPR = And->new(\($FACTOR, Any->new(\$ADDOP, \$FACTOR));
+	$FACTOR = Or->new(\$NUMBER, \$PAREXP);
+	$PAREXP  = And->new(\$LEFTP, \$EXPR, \$RIGHTP);
+
+Les arguments de la méthode new() sont des références à des objets de
+type C<LLg> (des non-terminaux) ou C<Token> (des terminaux). L'ordre
+d'écriture des règles importe peu. On peut en effet créer une
+référence à un scalaire avant d'en définir le contenu. Ces références
+seront résolues au moment de l'utilisation de chaque objet. Comme on
+peut le voir dans cet exemple il est possible de fabriquer une
+référence directement à partir de l'objet renvoyé par une règle.
+
+
+La sémantique se définit au moyen d'une fonction anonyme placée après
+la liste des références aux objets. La fonction anonyme exploite les
+informations associées aux objets. Ces informations sont transmises
+par les paramètres positionnels (le tableau C<@_>). Le nI<ième> argument
+désigne le résultat du nI<ième> paramètre de la méthode new(). Le
+premier argument est l'objet par new(). L'information
+retournée par la fonction est associée à l'objet et est transmise par
+le biais des paramètres positionels partout où l'objet est
+utilisé. Dans notre exemple nous aurons :
+
+	$EXPR = And->new(\($FACTOR, Any->new(\$addop, \$FACTOR)),
+		sub { 
+	          shift;
+		  my $result = shift;
+		  my ($op, $integer);
+		  while ($#_ >= 0) {
+                    ($op, $integer) = (shift, shift);
+		    if ($op eq '+')  {
+		      $result += $integer;
+		    } else {
+		      $result -= $integer;
+		    }
+		  }
+		  $result;
+		});
+	$FACTOR = Or->new(\$integer, \$PAREXP);
+	$PAREXP  = And->new(\$leftp, \$EXPR, \$rightp),
+	    sub { $_[2] });
+
+	print "result: ", $EXPR->next, "\n";
+
+
+Lorsqu'un entier est reconnu, il est retourné par la fonction anonyme
+associée à l'objet C<$FACTOR>. Cette information retournée (on dit
+I<synthétisée> parce qu'elle provient d'un terminal et qu'elle est
+transmis aux non-terminaux) est également disponible dans la fonction
+anonyme associée à l'objet C<$EXPR>.  L'information retournée par
+l'objet qui suit est utilisée pour calculer la valeur de l'expression
+arithmétique.
+
+Le lancement de l'analyseur s'effectue en appliquant la méthode next()
+à l'axiome de la grammaire : 
+
+	$EXPR->next;
+
+Par défaut les données analysées sont lues sur l'entrée standard. Le
+parseur donné en exemple permet d'analyser et d'interpréter une seule
+expression frappée dans un terminal. L'exemple C<calculator.pl> livré
+avec le package C<LLg> indique comment créer une boucle de saisie qui
+permet de lire et d'interpréter autant d'expression que l'on
+souhaite.
+
+Un parseur ne peut utiliser qu'un seul analyseur lexical.
+
+Le générateur de parseur peut être utilisé pour d'autres usages que
+l'analyse d'un flot de caractères. Si les packages C<Lex>, C<LLg> et
+C<Token> vont naturellement ensembles, il est tout fait possible de
+définir des terminaux qui sont des objets, instances d'une tout autre
+classe que C<Token>.
+
+Tout nouveau package permettant de définir des terminaux devrait au
+minimum contenir les méthodes status() et next() (voir l'exemple
+vonkoch.pl).
+
+=head1 PACKAGE LLg
+
+Les objets qui permettent de représenter les règles d'une grammaire
+sont des objets composites, ils résultent du groupement d'objets de
+type C<Token> (terminaux) et de l'un des six types de non-terminaux
+suivants : C<And>, C<Do>, C<Any>, C<Hook>, C<Opt> et C<Or>.
+
+Formellement une grammaire indépendante du contexte peut être vue
+comme un graphe dont les noeuds sont les non-terminaux et les feuilles
+les terminaux. Pour définir la sémantique on associe des fonctions à
+ces noeuds : l'une est exécutée avant d'explorer les sous-noeuds,
+l'autres après, si l'exploration du sous-graphe a réussie.
+
+Un parseur utilise des informations synthétisées et héritées. Les
+premières remontent dans le graphe, des terminaux aux non-terminaux,
+les secondes descendent des non-terminaux vers les terminaux. Les
+fonctions attachées aux noeuds du graphe ont pour rôle de modifier ces
+informations (voir la section C<Attributs et fonctions anonymes>).
+
+Dans la suite nous appelerons I<statut> d'un objet le fait que son
+exploration ait réussi ou non. Pour prendre un exemple le statut d'un
+noeud C<Or> est à Vrai si l'un au moins des sous-noeuds qui le compose
+a lui-même son statut à Vrai.
+
+=head2 Attributs et fonctions anonymes
+
+Des informations peuvent être transmises et modifiées lors du parcours
+du graphe. Ces informations sont de deux types : attributs hérités
+et attributs synthétisés. Un attribut synthétisé ou hérité peut être
+une structure de données PERL quelconque.
+
+Les attributs hérités peuvent être modifiés par la fonction qui est
+exécutée à l'entrée d'un noeud. Ces attributs hérités sont disponibles
+dans le tableau des arguments C<@_> (notez que $_[0] contient l'objet
+créé par la règle) ainsi que dans C<@_h>.
+
+Les procédures qui définissent la sémantique d'une règle accèdent aux
+attributs synthétisés et hérités. Dans ces procédures les attributs
+synthétisés sont disponibles dans le tableau des arguments C<@_> ainsi
+que dans C<@_s>. Les attributs sont dans le même ordre que les objets
+auxquels ils sont associées. Les attributs hérités sont disponibles
+dans le tableau C<@_h>. Ces derniers ne peuvent être modifiés dans la
+fonction sémantique.
+
+Les attributs hérités sont retournés par la fonction next(). Cette
+méthode retourne en fait ce que retourne la fonction sémantique en un
+noeud du graphe. En l'absence d'action sémantique les attributs
+synthétisés sont retournés tels quels.
+
+Les objets rattachés à un noeud de type C<And> ou de type C<Any> (ce
+sont des noeuds frères) se transmettent les informations synthétisées
+de la gauche vers la droite.
+
+L'objet correspondant à une règle est le premier argument des
+fonctions anonymes associées à cette règle.
+
+=head2 Types d'objets
+
+=item And
+
+C<And> définit un objet composé d'une séquence d'objets (terminaux et/ou
+non-terminaux). Un objet du type C<And> à son statut à vrai si tous
+les objets qui le composent ont eux-mêmes leur statut à vrai.
+
+=item Any
+
+C<Any> prend en argument une liste d'objets. Cette liste est parcourue
+tant que l'examen de tous les objets (terminaux et/ou non-terminaux)
+réussit.  Un objet du type C<Any> a toujours son statut à vrai.
+
+=item Do
+
+C<Do> permet de définir une action en tout endroit d'une production.
+
+=item Hook
+
+C<Hook> permet d'attacher des fonctions anonymes à un objet. Le
+premier argument doit être une référence à un objet, le second la
+fonction sémantique exécutée si le statut de l'objet est à vrai. Le
+troisième est une fonction anonyme toujours exécutée avant d'examiner
+l'objet. Sa vocation première est de modifier les attributs hérités.
+
+=item Opt
+
+C<Opt> prend pour argument une liste d'objets (terminaux ou
+non-terminaux). La liste est examinée une seule fois. Si le statut de
+tous les objets de la liste est à vrai, l'action sémantique est
+exécutée. Un objet de type C<Opt> a toujours son statut à vrai.
+
+=item Or
+
+C<Or> permet de créer une alternative. Le premier argument de la
+méthode est une liste d'objets (terminaux et/ou non-terminaux). Un
+objet du type C<Or> a son statut à vrai si l'un au moins des objets
+qui le composent a lui-même son statut à vrai. 
+
+=head2 Méthodes
+
+=item new()
+
+Tous les objets de l'un ou l'autre des types mentionnés sont créés au
+moyen de la méthode new(). Cette méthode a pour argument une liste
+de références à des objets, éventuellement suivie par une ou deux fonctions
+anonymes. La première définit la sémantique, la seconde est utilisée
+pour traiter les attributs hérités.
+
+=item next()
+
+L'activation d'une production est effectuée par la méthode next()
+(cette méthode peut être vue comme le moteur d'exploration du graphe).
+Elle fait remonter l'information de règle en règle, des terminaux à
+l'axiome en passant par les non-terminaux (elle réalise la synthèse
+des attributs).  Elle retourne la liste des attributs hérités, ou ce
+que retourne l'action sémantique associée à une règle.
+
+=item status()
+
+Indique si la dernière recherche de l'objet a réussie ou échouée.
+
+=item probe()
+
+Permet d'obtenir une trace rudimentaire dans la procédure associée à
+un objet. On pourra par exemple écrire :
+
+	$EXPR = And->new(...,
+	                 sub { 
+	                      $self = shift;
+		              $self->probe("EXPR @_");
+                         });
+
+=head1 GESTION DES ERREURS
+
+Pour traiter les expressions syntaxiquement incorrectes
+on peut utiliser un objet du type C<Do> (voir C<arithm3.pl>). 
+
+=head1 EXEMPLES
+
+L'écriture de programmes basés sur une grammaire permet de dissocier
+la description d'une structure, de sa fonction. On obtient de la sorte
+une bonne modularité qui favorise la clarté et l'évolutivité des
+programmes. Les exemples suivants tentent d'illustrer cette assertion.
+
+arithm1.pl - Interprète d'expressions arithmétiques ne comportant que
+des additions et soustractions d'entiers. arithm1.pl s'utilise dans un
+terminal, il retourne le résultat de l'expression tapée et
+s'arrête. Les erreurs ne sont pas reportées.
+
+arithm2.pl - Interprète d'expressions arithmétiques avec les quatres
+opérations sur des réels. 
+
+arithm3.pl - Version améliorée de "arithm2.pl". Dans cette version
+la boucle de lecture est incluse dans le parseur et des messages
+d'erreurs sont renvoyés à l'utilisateur.
+
+calculator.pl - Calculatrice très simple ne comportant que l'addition
+et la soustraction. Si on tape un nombre suivi d'un retour-chariot, il
+est imprimé précédé du signe égal. Les nombres qui sont ensuite tapés,
+sont ajoutés. La réinitialisation est effectuée lorsqu'on tape le
+signal C<= nombre> ou C<=> seul. Cet exemple montre comment inclure
+dans un parseur une boucle d'interaction avec l'utilisateur (cet
+exemple est inspiré du livre de Mason et Brown sur Lex & Yacc).
+
+vonkoch.pl - Permet d'obtenir le dessin d'une courbe de von Koch. Ne
+peut être utilisé que si vous disposez de Tkperl. Une tortue graphique
+a été créée pour la circonstance (voir le package Turtle.pm).
+
+=head1 OPIMITISATIONS
+
+C<LLg> est équivalent à un parseur récursif descendant avec
+rebroussement. Cette stratégie d'analyse est relativement simple à
+mettre en oeuvre mais n'est pas la plus performante.
+
+=head1 EXTENSIONS
+
+Nous attirons l'attention du lecteur sur le fait que C<LLg> est une
+version alpha et peut donc subir des évolutions importantes.
+
+De nombreuses extensions sont possibles. L'utilisation de C<LLg> dans
+différents contextes devrait nous fournir des indications sur les
+extensions intéressantes.
+
+=head1 AUTEURS
+
+Philippe Verdret.
+
+=head1 BUGS
+
+Les analyseurs lexicaux et syntaxiques doivent être définis dans le
+package C<main>.
+
+=head1 REFERENCES
+
+Groc, B., & Bouhier, M. - Programmation par la syntaxe. Dunod 1990.
+
+Mason, T & Brown, D. - Lex & Yacc. O'Reilly & Associates, Inc. 1990.
+
+
+=head1 COPYRIGHT
+
+Copyright (c) 1995-1996 Philippe Verdret. All rights reserved.
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+
+=cut

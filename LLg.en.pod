@@ -1,0 +1,388 @@
+=head1 NAME
+
+C<LLg> - Recursive descent parser generator (Alpha 1.07).
+
+=head1 SYNOPSIS
+
+	use LLg;
+	@tokens = (
+		   'ADDOP' => '[-+]', 
+		   'LEFTP' => '[(]',
+		   'RIGHTP' => '[)]',
+		   'INTEGER' => '0|[1-9][0-9]*',
+		  );
+	$reader = Lex->new(@tokens);
+	$ADDOP->debug;
+
+	$expr = And->new(\($factor, Any->new(\$ADDOP, \$factor)),
+                 sub { 
+		   shift(@_);
+		   my $result = shift(@_);
+		   my ($op, $integer);
+		   while ($#_ >= 0) {
+		     ($op, $integer) = (shift(@_), shift(@_));
+		     if ($op eq '+')  {
+		       $result += $integer;
+		     } else {
+		       $result -= $integer;
+		     }
+		   }
+		   $result;
+		 });
+	$factor = Or->new(\$INTEGER, \$parexp);
+	$parexp = And->new(\$LEFTP, \$expr, \$RIGHTP,
+		    sub { $_[2] });
+
+	print STDERR "Type your arithmetic expression: ";
+	print "Result: ", $expr->next, "\n";
+
+=head1 DESCRIPTION
+
+Creating parsers by hand is tedious even for simple languages. This
+activity can be automated by parser-generators - yacc is a well-known
+example. But using such tools is quite demanding and requires a
+reasonable knowlege of the principles of syntactic analysis.
+
+C<LLg> is a set of Perl5 packages which allow the generation of
+recursive descent parsers for context-free grammars.
+
+C<LLg> is provided with the packages C<Lex> and C<Token> which are
+object-based. The use of these packages presupposes that you know how
+to write a BNF grammar and that you know (just a little) about
+programming in Perl.
+
+Specifying the parser does not require any extension to Perl
+syntax. The specification is carried out entirely in standard Perl, be
+it definition of tokens, syntactic rules or associated semantic
+actions.  C<LLg> allows the easy specification of I<translation
+schemes>, that is parsers for which the semantic action is given by
+actions directly associated with each production.
+
+The packages C<Token> and C<LLg> allow respectively the definition of
+objects corresponding to terminals (tokens) and non-terminals of the
+grammar. C<Lex> handles the reading and "eating" of tokens in the
+input stream.
+
+Before using these packages you need to define a BNF grammar without
+left recursion (an LL(1) grammar). Given this, making the parser
+consists in:
+
+1. create a lexical analyser by specifying the terminals,
+
+2. create a parser (syntactic analyser) by creating a  C<LLg>
+object (or, more precisely, one of the packages which inherits from
+C<LLg>) for each non-terminal.
+
+3. define the semantics by associating an anonymous function with
+each C<LLg> object.
+
+Take as an example arithmetic expressions having only C<+> and
+C<-> as operators. In the Camel book we find the following grammar:
+
+	expr ::= factor { ADDOP factor }
+	ADDOP ::= '+' | '-'
+	factor ::= NUMBER | '(' expr ')'
+
+Creating the parser for this language involves defining a lexical
+analyser and a syntactic analyser.
+
+The lexical analyser is defined thusly:
+
+            @tokens = (
+               'ADDOP' => '[-+]', 
+               'LEFTP' => '[(]',
+               'RIGHTP' => '[)]',
+               'INTEGER' => '[1-9][0-9]*',
+              );
+            $reader = Lex->new(@tokens);
+
+The argument of the method new() is a list of pairs: the
+identity of the terminal and the corresponding regular expression.
+Each such pair leads to the creation of a terminal of type C<Token>.
+
+The package C<LLg> is the base package of a set : C<And>, C<Any>,
+C<Do>, C<Hook>, C<Opt>, C<Or>. These packages allow the creation of
+the different types of rules normally found in context-free
+grammars. We use a prefix notation with the following equivalences.
+
+      A | B     Or->new(\$A, \$B)    symbol A or symbol B
+
+
+      A B       And->new(\$A, \$B)   symbol A followed by symbol B
+
+
+      { A }     Any->new(\$A)        arbitrary number of  A
+
+
+      [ A ]     Opt->new(\$A)        zero or one occurrence of A
+
+Tous les symboles sont des objets au sens PERL.  À la suite des objets
+apparaissent éventuellement une ou deux fonctions anonymes, la première est
+l'action sémantique exécutée après l'examen des symboles, la seconde
+une fonction exécutée avant l'examen des symboles.
+
+The rules in our example are given by creating the following objects:
+
+	$expr = And->new(\($factor, Any->new(\$ADDOP, \$factor));
+	$factor = Or->new(\$NUMBER, \$parexp);
+	$parexp  = And->new(\$LEFTP, \$expr, \$RIGHTP);
+
+
+The arguments of the method new() are references to C<LLg> or
+C<Token> objects. (The written order of the rule has no
+significance, since scalars can be references before they are assigned
+a value. These references are resolved when each object is used. As
+the example shows, references can be obtained to the objects returned
+by a rule.)
+
+The semantics is defined by putting an anonymous function at the
+end of the list of object references. The anonymous function uses
+information associated with the objects. This information is
+transmitted by positional parameters (the array C<@_>). The
+I<nth> argument designates the result of the  I<nth> parameter
+of the method new(). Information returned by the function is
+associated with the object and is transmitted by means of positional
+parameters wherever the object is used. In our example we will have:
+
+	$expr = And->new(\($factor, Any->new(\$ADDOP, \$factor)),
+                 sub { 
+		   shift(@_);
+		   my $result = shift(@_);
+		   my ($op, $integer);
+		   while ($#_ >= 0) {
+		     ($op, $integer) = (shift(@_), shift(@_));
+		     if ($op eq '+')  {
+		       $result += $integer;
+		     } else {
+		       $result -= $integer;
+		     }
+		   }
+		   $result;
+		 });
+	$factor = Or->new(\$INTEGER, \$parexp);
+	$parexp = And->new(\$LEFTP, \$expr, \$RIGHTP,
+		    sub { $_[2] });
+
+	print STDERR "Type your arithmetic expression: ";
+	print "Result: ", $expr->next, "\n";
+
+When an integer is recognised it is returned by the anonymous function
+associated with the object C<$factor>. This returned information
+(or, more precisely, synthesised, since it comes from a a
+terminal and is transmitted to non-terminals) is also available in the
+anonymous function associated with the object C<$expr>. The
+information returned by the following object is used to calculate the
+value of the arithmetical expression.
+
+The analyser is started up by applying the method next() to the
+axiom of the grammar:
+
+            $expr->next;
+
+By default the input for analysis is read from the standard input. The
+example parser analyses and interprets individual expressions typed in
+at the terminal. The example C<calculator.pl> delivered with the
+C<LLg> package shows how to create an input loop allowing reading and
+interpretation of arbitrary many expressions.
+
+The parser generator can be used for other purposes than the analysis
+of a character stream. Given that the packages C<Lex>, C<LLg> and
+C<Token>, it is perfectly possible to define terminals which are
+objects i.e. instances of a class other than C<Token>.  Each new
+package defining terminals ought at least to have the methods status()
+and next() - see vonkoch.pl as an example.
+
+=head1 PACKAGE LLg
+
+The objects which represent grammar rules are composite objects. The
+are groupings of C<Token> objects (terminals) and one of the six
+following non-terminal types:
+C<And>, C<Any>, C<Do>, C<Hook>, C<Opt> et C<Or>.
+
+Formally, a context-free grammar can be seen as a graph whose nodes
+are non-terminals and whose leaves are terminals. The semantics is
+given by associating functions with these nodes: one of the functions
+is associated with before the sub-nodes are examined, the other
+afterwards - assuming that the examination is successful.
+
+A parser uses synthesised and inherited information. The first is
+passed up the graph from the terminals to the non-terminals; the second
+descends from non-terminals to terminals. The function attached to
+graph nodes can modify this information (see section C<Attributes and
+Anonymous Functions> ).
+
+Henceforth the I<status> of the object refers to whether the
+associated exploration has succeeded or not.  As an example, the
+status of a node C<Or> is true if at least on of its component subnodes
+has status true.
+
+=head2 Attributes and Anonymous Functions
+
+Information can be transmitted and modified during the graph
+traversal. This information is of two types: inherited attributes and
+synthesised attributes. A synthesised or inherited attribute can be
+any Perl data structure.
+
+These attributes can be modified by the function which is executed
+when the node is reached. All attributes are available in the argument
+array C<@_> (note that $_[0] contains the object created by the
+rule). The functions defining the rule semantics can modify
+synthesised attributes. The second function associated with a node can
+modify inherited attributes.
+
+Synthesised attributes are returned by the method next(). This
+method returns whatever the semantic function for the graph node
+returns. In the absence of a semantics the synthesised attributes are
+returned untouched.
+
+Objects attached to a node of type C<And> or of type C<Any> (brother
+nodes) transmit synthesised information from left to right.
+
+=head2 Types of Objects
+
+=item C<And> 
+
+C<And> defines an object composed of a sequence of objects (terminals
+and/or non-terminals). An object of type C<And> has status true if all
+its component objects are themselves true.
+
+=item C<Any> 
+
+Any takes as argument a list of objects. This list is traversed so
+long as the examination of each oject (terinal or non-terminal)
+succeeds.  An object of type Any always has status true.
+
+=item C<Do> 
+
+Define an action anywhere in a parser production.
+
+=item C<Hook> 
+
+Hook Attach anonymous functions to an object. The first argument must be
+an object reference, the second the semantic function executed if the
+object status is true. The third argument is an anonymous function
+which will always be executed before the examination of the object.
+
+=item Opt
+
+Opt takes a list of objects (terminals or non-terminals). The list is
+inspected onces. If all the list objects are true, the semantic action
+is carried out.  An object of type Opt is always true.
+
+=item Or
+
+Or allows alternatives. The first arguemnt is a list of objects
+(terminals and/or non-terminals). An object of type Or is true if at
+least one of its component objects is true.
+
+=head2 Methods
+
+=item inherited()
+
+Retourne la liste des attributs hérités.
+
+=item new() 
+
+All the objects of the types mentionned are created by the method
+new(). This method takes a list of object references, possibly
+followed by one or two anonymous functions. The first defines the
+semantics, the second handles inherited attributes.
+
+=item C<next()> 
+
+A rule is activated by the method next() (which can be viewed as the
+graph exploration engine). It returns the result from the rules's
+semantic function. It passes up information from rule to rule
+i.e. from the terminals to the axiom passing by the
+non-terminals. Thus it synthesises attributes.
+
+=item C<status()> 
+
+Indicates whether the last object search has succeeded or failed.
+
+
+=item C<probe()> 
+
+Allows rudimentary tracing of the function associated with an
+object. So, for example, one can write:
+
+
+            $EXPR = And->new(...,
+                             sub { 
+                                  $self = shift;
+                                  $self->probe("EXPR @_");
+                             });
+
+=head1 ERROR HANDLING
+
+For syntactically incorrect expression you can use a object of type 
+C<Do> (see C<arithm3.pl>).
+
+=head1 EXAMPLES
+
+Using grammar-based programs allows the separation of the description
+of a structure and the description of the function of this
+structure. This enhances modularity, clarity and evolutivity. The
+following supplied examples attempt to indicate this claim:
+
+arithm1.pl - Interpreter for arithmetic expression consisting of
+integer additions and subtractions. arithm1.pl is used from the
+terminal. It returns the input expression and then halts. There is no
+error reporting.
+
+arithm2.pl - Interpreter for arithmetic expressions having the 4
+standard operators for reals.
+
+arithm3.pl - Improved version of  "arithm2.pl". Includes read loop
+and error messages.
+
+calculator.pl - Super-simple calculator for addition and
+subtraction. If you type a number followed by ENTER, it is printed out
+with a preceeding equal sign. The numbers which you now type are added
+or subtracted to this number, depending on whether they are positive
+or negative. Reinitialisation occurs when you type C<= number> or C<=>
+alone. This example shows how you can supply the parser with a user
+interaction loop. (The example is bases on Mason and Brown in Lex &
+Yacc).
+
+vonkoch.pl - For those having access to Tkperl. Draws out a von
+Koch curve.
+
+=head1 OPIMITISATIONS
+
+C<LLg> est équivalent à un parseur récursif descendant avec
+rebroussement. Cette stratégie d'analyse est relativement simple à
+mettre en oeuvre mais n'est pas la plus performante.
+
+=head1 EXTENSIONS
+
+Note that C<LLg> is an alpha version and thus subjet to change.
+
+Many extensions are possible. Use of C<LLg> in different contexts
+should help us to find interesting extensions.
+
+=head1 AUTEURS
+
+Philippe Verdret
+
+=head1 SEE ALSO
+
+LLg package.
+
+=head1 BUGS
+
+=head1 REFERENCES
+
+Groc, B., & Bouhier, M. - Programmation par la syntaxe. Dunod 1990.
+
+Mason, T & Brown, D. - Lex & Yacc. O'Reilly & Associates, Inc. 1990.
+
+=head1 COPYRIGHT
+
+Copyright (c) 1995-1996 Philippe Verdret. All rights reserved.
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+
+=cut
+
+

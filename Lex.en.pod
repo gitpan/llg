@@ -1,0 +1,209 @@
+=head1 NAME
+
+C<Lex> - Lexical analyser generator (Alpha 1.07).
+
+=head1 SYNOPSIS
+
+	@tokens = (
+		   'ADDOP' => '[-+]', 
+		   'LEFTP' => '[(]',
+		   'RIGHTP' => '[)]',
+		   'INTEGER' => '0|[1-9][0-9]*',
+		   'NEWLINE' => '\n',
+		   'STRING' => '["]', sub {
+		     my $self = shift;
+		     my $string = $';
+		     my $buffer = $string;
+		     while($string !~ /"/) {
+	                   $string = $self->readline;
+			   $buffer .= $string;
+	             }
+	             $buffer =~ s/^[^"]*"//;
+		     $self->set($buffer);
+		     qq!"$&!;		# token content
+		   },
+		   'ERROR' => '.+',
+		  );
+
+	$lexer = Lex->new(@tokens);
+	$lexer->from(\*DATA);
+	print "Tokenization of DATA:\n";
+
+	TOKEN:while (1) {
+	  $token = $lexer->nextToken;
+	  if (not $lexer->eof) {
+	    print "Line $.\t";
+	    print "Type: ", $token->name, "\t";
+	    print "Content:->", $token->get, "<-\n";
+	  } else {
+	    last TOKEN;
+	  }
+	}
+
+	__END__
+	1+2-5
+	"multiline
+	string"
+
+=head1 DESCRIPTION
+
+The package C<Lex> allows the definition of lexical analysers. It handles
+reading and eating of the data.The method from() allows you to specify
+an input filehandle.
+
+The lexical analyser recognises tokens defined by regular expressions
+given as a parameter to the method new(). These regexs are examined in
+the order in which they are given in the parameter. 
+
+=head2 Methods 
+
+=item C<chomp()> 
+
+Active/disactivate the removal of the newline character for each input
+line.
+
+=item C<debug()> 
+
+Activate/disactivate a trace indicating which tokens have been eaten.
+
+
+=item C<eof()> 
+
+Return true if the end of file is encountered.
+
+=item C<from()> 
+
+Indicate the data source, The argument is either a string or a
+reference to a filehandle. For example:
+
+            $symbol->from(\*DATA);
+
+or
+
+            $symbol->from('les données à analyser');
+
+=item C<less(EXPR)> 
+
+The argument is an expression whose value is put at the start of the
+data stream.
+
+=item C<new()> 
+
+Create a new anlayser. The argument is a list of triples consisting
+of: the symbolique name of the token, the regular expression for its
+recognition and possibly an anonymous function executed when the token
+is recognised. new() creates an object of type C<Token> for each triple.
+
+=item C<reset()> 
+
+Empty Lex's internal buffer.
+
+=item C<buffer()>
+
+=item buffer(EXPR)
+
+Return the contents of Lex's internal buffer. With an expression as
+argument, put the result of the expression in the buffer.
+
+=item C<readline()> 
+
+Read data from the specified input (see method from()). Return the
+result of the read.
+
+=item C<singleline()> 
+
+If active read only a single line.
+
+=item C<skip(RE)> 
+
+Define the lexeme separator (default: C<[ \t]+>).
+
+=item C<token()> 
+
+Return the object corresponding to the last token consumed. In the
+absence of a such, return a special token whose symbolic name is
+C<default token>.
+
+=head1 PACKAGE TOKEN 
+
+The package C<Token> allows the definition of tokens used by the
+lexical analyser. Objects of this type are created by the method new()
+of the package  C<Lex>.
+
+=head2 Methods
+
+=item C<debug()> 
+
+Activate/disactivate a trace showing which tokens have been found.
+
+=item C<get>
+
+Return the content of the object.
+
+=item C<mean()> 
+
+Return the anonymous function associate with the object C<Token>.
+
+=item C<name()> 
+
+Return the symbolic name of the object.
+
+=item C<next()> 
+
+Read, consume and return the token defined by the regular expression in
+the object.
+
+=item C<new()> 
+
+Create an object of type C<Token>. The arguments of new() are
+ordered: a symbolic name, a regular expression, and (optionally) an
+anonymous function. The anonymous function is executed when the token
+is consumed by the lexical analyser. The output of this function
+defines the string of characters memorised in the object and
+accessible by the method get().
+
+=item C<regexp()> 
+
+Return the regular expression used for token recognition.
+
+=item C<status()> 
+
+Indicate is the last token search has succeeded or not.
+
+=head1 ERROR HANDLING
+
+To handle cases where tokens are not recognised you can define a
+specific  C<Token> object e.g.
+
+            $ERROR = Token->new('.*');
+
+If search for this token succeeds it is then possible to call an error
+function. 
+
+=head1 EXEMPLES
+
+tokenizer.pl -  Shows tokenisation using the package Lex.
+
+=head1 AUTEURS
+
+Philippe Verdret
+
+=head1 SEE ALSO
+
+LLg package.
+
+=head1 BUGS
+
+=head1 REFERENCES
+
+Groc, B., & Bouhier, M. - Programmation par la syntaxe. Dunod 1990.
+
+Mason, T & Brown, D. - Lex & Yacc. O'Reilly & Associates, Inc. 1990.
+
+=head1 COPYRIGHT
+
+Copyright (c) 1995-1996 Philippe Verdret. All rights reserved.
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+
+=cut
